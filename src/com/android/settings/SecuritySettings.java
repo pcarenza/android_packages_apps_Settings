@@ -62,6 +62,7 @@ public class SecuritySettings extends SettingsPreferenceFragment
             "biometric_weak_improve_matching";
     private static final String KEY_BIOMETRIC_WEAK_LIVELINESS = "biometric_weak_liveliness";
     private static final String KEY_LOCK_ENABLED = "lockenabled";
+    private static final String KEY_AUDIBLE_COMMAND = "audiblecommand";
     private static final String KEY_VISIBLE_PATTERN = "visiblepattern";
     private static final String KEY_VISIBLE_GESTURE = "visiblegesture";
     private static final String KEY_VISIBLE_ERROR_PATTERN = "visible_error_pattern";
@@ -96,6 +97,7 @@ public class SecuritySettings extends SettingsPreferenceFragment
 
     private CheckBoxPreference mBiometricWeakLiveliness;
     private CheckBoxPreference mVisiblePattern;
+    private CheckBoxPreference mAudibleCommand;
     private CheckBoxPreference mVisibleGesture;
     private CheckBoxPreference mVisibleErrorPattern;
     private CheckBoxPreference mVisibleDots;
@@ -174,6 +176,9 @@ public class SecuritySettings extends SettingsPreferenceFragment
                 case DevicePolicyManager.PASSWORD_QUALITY_COMPLEX:
                     resid = R.xml.security_settings_password;
                     break;
+		case DevicePolicyManager.PASSWORD_QUALITY_COMMAND_WEAK:
+		    resid = R.xml.security_settings_command;
+		    break;
                 case DevicePolicyManager.PASSWORD_QUALITY_GESTURE_WEAK:
                     resid = R.xml.security_settings_gesture;
                     break;
@@ -223,6 +228,9 @@ public class SecuritySettings extends SettingsPreferenceFragment
         // visible pattern
         mVisiblePattern = (CheckBoxPreference) root.findPreference(KEY_VISIBLE_PATTERN);
         
+	// audible command
+	mAudibleCommand = (CheckBoxPreference) root.findPreference(KEY_AUDIBLE_COMMAND);
+
         // visible gesture
             mVisibleGesture = (CheckBoxPreference) root.findPreference(KEY_VISIBLE_GESTURE);
         
@@ -554,6 +562,8 @@ public class SecuritySettings extends SettingsPreferenceFragment
             lockPatternUtils.setLockPatternEnabled(isToggled(preference));
         } else if (KEY_VISIBLE_PATTERN.equals(key)) {
             lockPatternUtils.setVisiblePatternEnabled(isToggled(preference));
+	} else if (KEY_AUDIBLE_COMMAND.equals(key)) {
+	    lockPatternUtils.setAudibleGestureEnabled(isToggled(preference));
         } else if (KEY_VISIBLE_GESTURE.equals(key)) {
             lockPatternUtils.setVisibleGestureEnabled(isToggled(preference));
         } else if (KEY_VISIBLE_ERROR_PATTERN.equals(key)) {

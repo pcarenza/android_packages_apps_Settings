@@ -58,6 +58,7 @@ public class ChooseLockGeneric extends PreferenceActivity {
         private static final String KEY_UNLOCK_SET_PIN = "unlock_set_pin";
         private static final String KEY_UNLOCK_SET_PASSWORD = "unlock_set_password";
         private static final String KEY_UNLOCK_SET_PATTERN = "unlock_set_pattern";
+	private static final String KEY_UNLOCK_SET_COMMAND = "unlock_set_command";
         private static final String KEY_UNLOCK_SET_GESTURE = "unlock_set_gesture";
         private static final int CONFIRM_EXISTING_REQUEST = 100;
         private static final int FALLBACK_REQUEST = 101;
@@ -141,6 +142,9 @@ public class ChooseLockGeneric extends PreferenceActivity {
             } else if (KEY_UNLOCK_SET_PASSWORD.equals(key)) {
                 updateUnlockMethodAndFinish(
                         DevicePolicyManager.PASSWORD_QUALITY_ALPHABETIC, false);
+            } else if (KEY_UNLOCK_SET_COMMAND.equals(key)) {
+                updateUnlockMethodAndFinish(
+                        DevicePolicyManager.PASSWORD_QUALITY_COMMAND_WEAK, false);
             } else if (KEY_UNLOCK_SET_GESTURE.equals(key)) {
                 updateUnlockMethodAndFinish(
                         DevicePolicyManager.PASSWORD_QUALITY_GESTURE_WEAK, false);
@@ -364,8 +368,23 @@ public class ChooseLockGeneric extends PreferenceActivity {
                 .getBooleanExtra(LockPatternUtils.LOCKSCREEN_BIOMETRIC_WEAK_FALLBACK, false);
 
             quality = upgradeQuality(quality, null);
+	
+	    if (quality == DevicePolicyManager.PASSWORD_QUALITY_COMMAND_WEAK) {
+		Intent intent = new Intent().setClass(getActivity(), ChooseLockCommand.class);
+		intent.putExtra(CONFIRM_CREDENTIALS, false);
+		intent.putExtra(LockGestureUtils.LOCKSCREEN_BIOMETRIC_WEAK_FALLBACK,
+			isFallback);
+                if (isFallback) {
+                    startActivityForResult(intent, FALLBACK_REQUEST);
+                    return;
+                } else {
+                    mFinishPending = true;
+                    intent.addFlags(Intent.FLAG_ACTIVITY_FORWARD_RESULT);
+                    startActivity(intent);
+                }
 
-            if (quality == DevicePolicyManager.PASSWORD_QUALITY_GESTURE_WEAK) {
+
+             } else if (quality == DevicePolicyManager.PASSWORD_QUALITY_GESTURE_WEAK) {
                 Intent intent = new Intent().setClass(getActivity(), ChooseLockGesture.class);
                 intent.putExtra(CONFIRM_CREDENTIALS, false);
                 intent.putExtra(LockPatternUtils.LOCKSCREEN_BIOMETRIC_WEAK_FALLBACK,

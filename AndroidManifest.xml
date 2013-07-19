@@ -15,6 +15,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.NFC" />
     <uses-permission android:name="android.permission.HARDWARE_TEST" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
@@ -1011,6 +1012,8 @@
         <!-- Lock screen settings -->
         <activity android:name="ConfirmLockPattern"/>
 
+	<activity android:name="ConfirmLockCommand"/>
+
         <activity android:name="ConfirmLockGesture"/>
 
         <activity android:name="ConfirmLockPassword"
@@ -1028,6 +1031,8 @@
         <activity android:name="ChooseLockPatternSize" android:exported="false"/>
 
         <activity android:name="ChooseLockPattern" android:exported="false"/>
+
+	<activity android:name="ChooseLockCommand" android:exported="false"/>
 
         <activity android:name="ChooseLockGesture" android:exported="false"/>
 
