@@ -96,6 +96,31 @@ public final class ChooseLockSettingsHelper {
         return true;
     }
 
+    /*
+     * Launch screen to confirm the existing lock passphrase.
+     * @param message shown in header of ConfirmLockCommand if not null
+     * @param details shown in footer of ConfirmLockCommand if not null
+     * @see #onActivityResult(int, int, android.content.Intent)
+     * @return true if we launched an activity to confirm passphrase
+     */
+    private boolean confirmCommand(int request, CharSequence message, CharSequence details) {
+        if (!mLockPatternUtils.isLockCommandEnabled() || !mLockPatternUtils.savedCommandExists()) {
+            return false;
+        }
+        final Intent intent = new Intent();
+        // supply header and footer text in the intent
+        intent.putExtra(ConfirmLockPattern.HEADER_TEXT, message);
+        intent.putExtra(ConfirmLockPattern.FOOTER_TEXT, details);
+        intent.setClassName("com.android.settings", "com.android.settings.ConfirmLockCommand");
+        if (mFragment != null) {
+            mFragment.startActivityForResult(intent, request);
+        } else {
+            mActivity.startActivityForResult(intent, request);
+        }
+        return true;
+    }
+
+
     /**
      * Launch screen to confirm the existing lock gesture.
      * @param message shown in header of ConfirmLockGesture if not null

@@ -47,6 +47,11 @@
             android:persistent="false"/>
 
     <PreferenceScreen
+            android:key="unlock_set_command"
+            android:title="@string/unlock_set_unlock_command_title"
+            android:persistent="false"/>
+
+    <PreferenceScreen
             android:key="unlock_set_gesture"
             android:title="@string/unlock_set_unlock_gesture_title"
             android:persistent="false"/>
