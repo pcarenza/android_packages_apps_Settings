@@ -70,7 +70,7 @@ public class ChooseLockCommand extends PreferenceActivity {
         private int mPasswordMaxLength = 16;
      
         private LockPatternUtils mLockPatternUtils;
-        private int mRequestedQuality = DevicePolicyManager.PASSWORD_QUALITY_NUMERIC;
+        private int mRequestedQuality = DevicePolicyManager.PASSWORD_QUALITY_COMMAND;
         private ChooseLockSettingsHelper mChooseLockSettingsHelper;
         private Stage mUiStage = Stage.Introduction;
         private TextView mHeaderText;
