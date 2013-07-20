@@ -17,6 +17,8 @@
 package com.android.settings;
 
 import com.android.internal.widget.LockPatternUtils;
+import com.android.internal.widget.PasswordEntryKeyboardHelper;
+import com.android.internal.widget.PasswordEntryKeyboardView;
 
 import android.app.Activity;
 import android.app.Fragment;
@@ -25,8 +27,7 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.preference.PreferenceActivity;
-import android.speech.RecognizerIntent;
-import android.speech.RecognitionListener;
+import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.KeyEvent;
@@ -35,8 +36,10 @@ import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.TextView.OnEditorActionListener;
 
 public class ConfirmLockPassword extends PreferenceActivity {
 
@@ -50,23 +53,28 @@ public class ConfirmLockPassword extends PreferenceActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // Disable IME on our window since we provide our own keyboard
+        //getWindow().setFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM,
+                //WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
         super.onCreate(savedInstanceState);
-        CharSequence msg = getText(R.string.lockcommand_confirm_your_password_header);
+        CharSequence msg = getText(R.string.lockpassword_confirm_your_password_header);
         showBreadCrumbs(msg, msg);
     }
 
     public static class ConfirmLockPasswordFragment extends Fragment implements OnClickListener,
-            RecognitionListener {
+            OnEditorActionListener, TextWatcher {
         private static final long ERROR_MESSAGE_TIMEOUT = 3000;
         private TextView mPasswordEntry;
         private LockPatternUtils mLockPatternUtils;
         private TextView mHeaderText;
         private Handler mHandler = new Handler();
+        private PasswordEntryKeyboardHelper mKeyboardHelper;
+        private PasswordEntryKeyboardView mKeyboardView;
         private Button mContinueButton;
 
 
         // required constructor for fragments
-        public ConfirmLockCommandFragment() {
+        public ConfirmLockPasswordFragment() {
 
         }
 
@@ -79,34 +87,44 @@ public class ConfirmLockPassword extends PreferenceActivity {
         @Override
         public View onCreateView(LayoutInflater inflater, ViewGroup container,
                 Bundle savedInstanceState) {
+            final int storedQuality = mLockPatternUtils.getKeyguardStoredPasswordQuality();
+            View view = inflater.inflate(R.layout.confirm_lock_password, null);
+            // Disable IME on our window since we provide our own keyboard
 
-            View view = inflater.inflate(R.layout.confirm_lock_command, null);
-
-	    view.findViewById(R.id.speak_button).setOnClickListener(this);
             view.findViewById(R.id.cancel_button).setOnClickListener(this);
             mContinueButton = (Button) view.findViewById(R.id.next_button);
             mContinueButton.setOnClickListener(this);
             mContinueButton.setEnabled(false); // disable until the user enters at least one char
 
-            PackageManager pm = getPackageManager();
-            List<ResolveInfo> activities = pm.queryIntentActivities(
-                new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH), 0);
-            if (activities.size() == 0)
-            {
-                mSpeakButton.setEnabled(false);
-                mSpeakButton.setText("Recognizer not present");
-            }
+            mPasswordEntry = (TextView) view.findViewById(R.id.password_entry);
+            mPasswordEntry.setOnEditorActionListener(this);
+            mPasswordEntry.addTextChangedListener(this);
 
-
+            mKeyboardView = (PasswordEntryKeyboardView) view.findViewById(R.id.keyboard);
+            mHeaderText = (TextView) view.findViewById(R.id.headerText);
+            final boolean isAlpha = DevicePolicyManager.PASSWORD_QUALITY_ALPHABETIC == storedQuality
+                    || DevicePolicyManager.PASSWORD_QUALITY_ALPHANUMERIC == storedQuality
+                    || DevicePolicyManager.PASSWORD_QUALITY_COMPLEX == storedQuality;
             mHeaderText.setText(isAlpha ? R.string.lockpassword_confirm_your_password_header
                     : R.string.lockpassword_confirm_your_pin_header);
 
             final Activity activity = getActivity();
+            mKeyboardHelper = new PasswordEntryKeyboardHelper(activity,
+                    mKeyboardView, mPasswordEntry);
+            mKeyboardHelper.setKeyboardMode(isAlpha ?
+                    PasswordEntryKeyboardHelper.KEYBOARD_MODE_ALPHA
+                    : PasswordEntryKeyboardHelper.KEYBOARD_MODE_NUMERIC);
+            mKeyboardView.requestFocus();
+
+            int currentType = mPasswordEntry.getInputType();
+            mPasswordEntry.setInputType(isAlpha ? currentType
+                    : (InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD));
 
             // Update the breadcrumb (title) if this is embedded in a PreferenceActivity
             if (activity instanceof PreferenceActivity) {
                 final PreferenceActivity preferenceActivity = (PreferenceActivity) activity;
-                int id = R.string.lockcommand_confirm_your_password_header;
+                int id = isAlpha ? R.string.lockpassword_confirm_your_password_header
+                        : R.string.lockpassword_confirm_your_pin_header;
                 CharSequence title = getText(id);
                 preferenceActivity.showBreadCrumbs(title, title);
             }
@@ -151,25 +169,8 @@ public class ConfirmLockPassword extends PreferenceActivity {
                     getActivity().setResult(RESULT_CANCELED);
                     getActivity().finish();
                     break;
-
-		case R.id.speak_button:
-		    startVoiceRecognitionActivity();
             }
         }
-
-/**
-* Fire an intent to start the voice recognition activity.
-*/
-        private void startVoiceRecognitionActivity()
-        {
-                Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-                intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                        RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-                intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Voice recognition Demo...");
-                startActivityForResult(intent, REQUEST_CODE);
-        }
-
-
 
         private void showError(int msg) {
             mHeaderText.setText(msg);
@@ -182,5 +183,27 @@ public class ConfirmLockPassword extends PreferenceActivity {
             }, ERROR_MESSAGE_TIMEOUT);
         }
 
+        // {@link OnEditorActionListener} methods.
+        public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
+            // Check if this was the result of hitting the enter or "done" key
+            if (actionId == EditorInfo.IME_NULL
+                    || actionId == EditorInfo.IME_ACTION_DONE
+                    || actionId == EditorInfo.IME_ACTION_NEXT) {
+                handleNext();
+                return true;
+            }
+            return false;
+        }
+
+        // {@link TextWatcher} methods.
+        public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+        }
+
+        public void onTextChanged(CharSequence s, int start, int before, int count) {
+        }
+
+        public void afterTextChanged(Editable s) {
+            mContinueButton.setEnabled(mPasswordEntry.getText().length() > 0);
+        }
     }
 }
