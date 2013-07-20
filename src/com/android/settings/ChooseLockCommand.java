@@ -1,7 +1,5 @@
 /*
- * EDIT THIS FOR AUDIBLE COMMANDS!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
- * Copyright (C) 2007 The Android Open Source Project
- * Copyright (C) 2013 The ChameleonOS Open Source Project
+ * Copyright (C) 2010 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,52 +16,41 @@
 
 package com.android.settings;
 
+import com.android.internal.widget.LockPatternUtils;
+
 import android.app.Activity;
 import android.app.Fragment;
+import android.app.admin.DevicePolicyManager;
 import android.content.Intent;
-import android.content.res.Resources;
-import android.gesture.Gesture;
-import android.gesture.GestureStore;
-import android.gesture.Prediction;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.preference.PreferenceActivity;
+import android.speech.RecognizerIntent;
+import android.speech.RecognitionListener;
+import android.text.InputType;
+import android.text.Selection;
+import android.text.Spannable;
+import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.View.OnClickListener;
+import android.view.accessibility.AccessibilityEvent;
+import android.widget.Button;
 import android.widget.TextView;
-import com.android.internal.widget.LinearLayoutWithDefaultTouchRecepient;
-import com.android.internal.widget.LockGestureView;
-import com.android.internal.widget.LockPatternUtils;
 
-import java.util.ArrayList;
-
-import static com.android.internal.widget.LockGestureView.DisplayMode;
-
-/**
- * If the user has a lock gesture set already, makes them confirm the existing one.
- *
- * Then, prompts the user to choose a lock gesture:
- * - prompts for initial gesture
- * - asks for confirmation / restart
- * - saves chosen password when confirmed
- */
-public class ChooseLockGesture extends PreferenceActivity {
-    /**
-     * Used by the choose lock gesture wizard to indicate the wizard is
-     * finished, and each activity in the wizard should finish.
-     * <p>
-     * Previously, each activity in the wizard would finish itself after
-     * starting the next activity. However, this leads to broken 'Back'
-     * behavior. So, now an activity does not finish itself until it gets this
-     * result.
-     */
-    static final int RESULT_FINISHED = RESULT_FIRST_USER;
+public class ChooseLockCommand extends PreferenceActivity {
+    private static final int REQUEST_CODE=1234;
+    private ListView ResultList;
+    
 
     @Override
     public Intent getIntent() {
         Intent modIntent = new Intent(super.getIntent());
-        modIntent.putExtra(EXTRA_SHOW_FRAGMENT, ChooseLockGestureFragment.class.getName());
+        modIntent.putExtra(EXTRA_SHOW_FRAGMENT, ChooseLockPasswordFragment.class.getName());
         modIntent.putExtra(EXTRA_NO_HEADERS, true);
         return modIntent;
     }
@@ -71,418 +58,200 @@ public class ChooseLockGesture extends PreferenceActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        CharSequence msg = getText(R.string.lockpassword_choose_your_gesture_header);
+        CharSequence msg = getText(R.string.lockpassword_choose_your_password_header);
         showBreadCrumbs(msg, msg);
     }
 
-    @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        // *** TODO ***
-        return super.onKeyDown(keyCode, event);
-    }
-
-    public static class ChooseLockGestureFragment extends Fragment
-            implements View.OnClickListener {
-
-        public static final int CONFIRM_EXISTING_REQUEST = 55;
-
-        // how long after a confirmation message is shown before moving on
-        static final int INFORMATION_MSG_TIMEOUT_MS = 3000;
-
-        // how long we wait to clear a wrong gesture
-        private static final int WRONG_GESTURE_CLEAR_TIMEOUT_MS = 2000;
-
-        private static final int ID_EMPTY_MESSAGE = -1;
-
-        protected TextView mHeaderText;
-        protected LockGestureView mLockGestureView;
-        protected TextView mFooterText;
-        private TextView mFooterLeftButton;
-        private TextView mFooterRightButton;
-        protected Gesture mChosenGesture = null;
-        protected GestureStore mGestureStore;
-        protected int mMinPredictionScore;
-
-        @Override
-        public void onActivityResult(int requestCode, int resultCode,
-                Intent data) {
-            super.onActivityResult(requestCode, resultCode, data);
-            switch (requestCode) {
-                case CONFIRM_EXISTING_REQUEST:
-                    if (resultCode != Activity.RESULT_OK) {
-                        getActivity().setResult(RESULT_FINISHED);
-                        getActivity().finish();
-                    }
-                    updateStage(Stage.Introduction);
-                    break;
-            }
-        }
-
-        /**
-         * The gesture listener that responds according to a user choosing a new
-         * lock gesture.
-         */
-        protected LockGestureView.OnLockGestureListener mChooseNewLockGestureListener =
-                new LockGestureView.OnLockGestureListener() {
-
-                public void onGestureStart() {
-                    mLockGestureView.removeCallbacks(mClearGestureRunnable);
-                    mLockGestureView.setDisplayMode(DisplayMode.Correct);
-                    gestureInProgress();
-                }
-
-                public void onGestureCleared() {
-                    mLockGestureView.removeCallbacks(mClearGestureRunnable);
-                }
-
-                public void onGestureDetected(Gesture gesture) {
-                    if (mUiStage == Stage.NeedToConfirm || mUiStage == Stage.ConfirmWrong) {
-                        if (mChosenGesture == null) throw new IllegalStateException(
-                                "null chosen pattern in stage 'need to confirm");
-                        if (gestureMatch(gesture)) {
-                            updateStage(Stage.ChoiceConfirmed);
-                        } else {
-                            updateStage(Stage.ConfirmWrong);
-                        }
-                    } else if (mUiStage == Stage.Introduction){
-                        mChosenGesture = gesture;
-                        if (mGestureStore.getGestures("lock_gesture") != null)
-                            mGestureStore.removeEntry("lock_gesture");
-                        mGestureStore.addGesture("lock_gesture", gesture);
-                        updateStage(Stage.FirstChoiceValid);
-                    } else {
-                        throw new IllegalStateException("Unexpected stage " + mUiStage + " when "
-                                + "entering the gesture.");
-                    }
-                }
-
-                private void gestureInProgress() {
-                    mHeaderText.setText(R.string.lockgesture_recording_inprogress);
-                    mFooterText.setText("");
-                    mFooterLeftButton.setEnabled(false);
-                    mFooterRightButton.setEnabled(false);
-                }
-         };
-
-        protected boolean gestureMatch(Gesture gesture) {
-            ArrayList<Prediction> predictions = mGestureStore.recognize(gesture);
-            if (predictions.size() > 0) {
-                Prediction prediction = predictions.get(0);
-                if (prediction.score > mMinPredictionScore) {
-                    if (prediction.name.equals("lock_gesture")) {
-                        Gesture foundGesture = mGestureStore.getGestures("lock_gesture").get(0);
-                        if (foundGesture.getStrokesCount() == gesture.getStrokesCount())
-                            return true;
-                        else
-                            return false;
-                    }
-                }
-            }
-            return false;
-        }
-
-        /**
-         * The states of the left footer button.
-         */
-        enum LeftButtonMode {
-            Cancel(R.string.cancel, true),
-            CancelDisabled(R.string.cancel, false),
-            Retry(R.string.lockgesture_retry_button_text, true),
-            RetryDisabled(R.string.lockgesture_retry_button_text, false),
-            Gone(ID_EMPTY_MESSAGE, false);
-
-
-            /**
-             * @param text The displayed text for this mode.
-             * @param enabled Whether the button should be enabled.
-             */
-            LeftButtonMode(int text, boolean enabled) {
-                this.text = text;
-                this.enabled = enabled;
-            }
-
-            final int text;
-            final boolean enabled;
-        }
-
-        /**
-         * The states of the right button.
-         */
-        enum RightButtonMode {
-            Continue(R.string.lockgesture_continue_button_text, true),
-            ContinueDisabled(R.string.lockgesture_continue_button_text, false),
-            Confirm(R.string.lockgesture_confirm_button_text, true),
-            ConfirmDisabled(R.string.lockgesture_confirm_button_text, false),
-            Ok(android.R.string.ok, true);
-
-            /**
-             * @param text The displayed text for this mode.
-             * @param enabled Whether the button should be enabled.
-             */
-            RightButtonMode(int text, boolean enabled) {
-                this.text = text;
-                this.enabled = enabled;
-            }
-
-            final int text;
-            final boolean enabled;
-        }
-
-        /**
-         * Keep track internally of where the user is in choosing a gesture.
-         */
-        protected enum Stage {
-
-            Introduction(
-                    R.string.lockgesture_recording_intro_header,
-                    LeftButtonMode.Cancel, RightButtonMode.ContinueDisabled,
-                    ID_EMPTY_MESSAGE, true),
-            HelpScreen(
-                    R.string.lockgesture_settings_help_how_to_record,
-                    LeftButtonMode.Gone, RightButtonMode.Ok, ID_EMPTY_MESSAGE, false),
-            FirstChoiceValid(
-                    R.string.lockgesture_pattern_entered_header,
-                    LeftButtonMode.Retry, RightButtonMode.Continue, ID_EMPTY_MESSAGE, false),
-            NeedToConfirm(
-                    R.string.lockgesture_need_to_confirm,
-                    LeftButtonMode.Cancel, RightButtonMode.ConfirmDisabled,
-                    ID_EMPTY_MESSAGE, true),
-            ConfirmWrong(
-                    R.string.lockgesture_need_to_unlock_wrong,
-                    LeftButtonMode.Cancel, RightButtonMode.ConfirmDisabled,
-                    ID_EMPTY_MESSAGE, true),
-            ChoiceConfirmed(
-                    R.string.lockgesture_pattern_confirmed_header,
-                    LeftButtonMode.Cancel, RightButtonMode.Confirm, ID_EMPTY_MESSAGE, false);
-
-
-            /**
-             * @param headerMessage The message displayed at the top.
-             * @param leftMode The mode of the left button.
-             * @param rightMode The mode of the right button.
-             * @param footerMessage The footer message.
-             * @param gestureEnabled Whether the pattern widget is enabled.
-             */
-            Stage(int headerMessage,
-                    LeftButtonMode leftMode,
-                    RightButtonMode rightMode,
-                    int footerMessage, boolean gestureEnabled) {
-                this.headerMessage = headerMessage;
-                this.leftMode = leftMode;
-                this.rightMode = rightMode;
-                this.footerMessage = footerMessage;
-                this.gestureEnabled = gestureEnabled;
-            }
-
-            final int headerMessage;
-            final LeftButtonMode leftMode;
-            final RightButtonMode rightMode;
-            final int footerMessage;
-            final boolean gestureEnabled;
-        }
-
+    public static class ChooseLockPasswordFragment extends Fragment
+            implements OnClickListener, RecognitionListener {
+        private static final String KEY_FIRST_PIN = "first_pin";
+        private static final String KEY_UI_STAGE = "ui_stage";
+        private TextView mPasswordEntry;
+        private int mPasswordMinLength = 4;
+        private int mPasswordMaxLength = 16;
+     
+        private LockPatternUtils mLockPatternUtils;
+        private int mRequestedQuality = DevicePolicyManager.PASSWORD_QUALITY_NUMERIC;
+        private ChooseLockSettingsHelper mChooseLockSettingsHelper;
         private Stage mUiStage = Stage.Introduction;
+        private TextView mHeaderText;
+	private Button mSpeakButton;
+        private String mFirstPin;
+        private boolean mIsAlphaMode;
+        private Button mCancelButton;
+        private Button mNextButton;
+        private static final int CONFIRM_EXISTING_REQUEST = 58;
+        static final int RESULT_FINISHED = RESULT_FIRST_USER;
+        private static final long ERROR_MESSAGE_TIMEOUT = 3000;
+        private static final int MSG_SHOW_ERROR = 1;
 
-        private Runnable mClearGestureRunnable = new Runnable() {
-            public void run() {
-                mLockGestureView.clearGesture();
+        private Handler mHandler = new Handler() {
+            @Override
+            public void handleMessage(Message msg) {
+                if (msg.what == MSG_SHOW_ERROR) {
+                    updateStage((Stage) msg.obj);
+                }
             }
         };
 
-        private ChooseLockSettingsHelper mChooseLockSettingsHelper;
+        /**
+         * Keep track internally of where the user is in choosing a pattern.
+         */
+        protected enum Stage {
 
-        private static final String KEY_UI_STAGE = "uiStage";
-        private static final String KEY_GESTURE_CHOICE = "chosenGesture";
+            Introduction(R.string.lockpassword_choose_your_command_header,
+                    R.string.lockpassword_continue_label),
+
+            NeedToConfirm(R.string.lockpassword_confirm_your_command_header,
+                    R.string.lockpassword_ok_label),
+
+            ConfirmWrong(R.string.lockpassword_confirm_passwords_dont_match,
+                    R.string.lockpassword_continue_label);
+
+            /**
+             * @param headerMessage The message displayed at the top.
+             */
+            Stage(int hintInAlpha, int nextButtonText) {
+                this.alphaHint = hintInAlpha;
+                this.buttonText = nextButtonText;
+            }
+
+            public final int alphaHint;
+            public final int buttonText;
+        }
+
+        // required constructor for fragments
+        public ChooseLockCommandFragment() {
+
+        }
 
         @Override
         public void onCreate(Bundle savedInstanceState) {
             super.onCreate(savedInstanceState);
+            mLockPatternUtils = new LockPatternUtils(getActivity());
+            Intent intent = getActivity().getIntent();
+
             mChooseLockSettingsHelper = new ChooseLockSettingsHelper(getActivity());
-            mGestureStore = new GestureStore();
-            mGestureStore.setOrientationStyle(GestureStore.ORIENTATION_SENSITIVE);
-            try {
-                mMinPredictionScore = getActivity().getResources().getInteger(
-                        com.android.internal.R.integer.min_gesture_prediction_score);
-            } catch (Resources.NotFoundException e) {
-                mMinPredictionScore = 2;
-            }
         }
 
         @Override
         public View onCreateView(LayoutInflater inflater, ViewGroup container,
                 Bundle savedInstanceState) {
 
-            // setupViews()
-            View view = inflater.inflate(R.layout.choose_lock_gesture, null);
+            View view = inflater.inflate(R.layout.choose_lock_command, null);
+	    mSpeakButton = (Button) view.findViewById(R.id.speak_button);
+	    mSpeakButton.setOnClickListener(this);
+            mCancelButton = (Button) view.findViewById(R.id.cancel_button);
+            mCancelButton.setOnClickListener(this);
+            mNextButton = (Button) view.findViewById(R.id.next_button);
+            mNextButton.setOnClickListener(this);
+
+
+            PackageManager pm = getPackageManager();
+            List<ResolveInfo> activities = pm.queryIntentActivities(
+                new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH), 0);
+            if (activities.size() == 0)
+            {
+            	mSpeakButton.setEnabled(false);
+            	mSpeakButton.setText("Recognizer not present");
+            }
+            final Activity activity = getActivity();
+
             mHeaderText = (TextView) view.findViewById(R.id.headerText);
-            mLockGestureView = (LockGestureView) view.findViewById(R.id.lockGesture);
-            mLockGestureView.setOnGestureListener(mChooseNewLockGestureListener);
-            mFooterText = (TextView) view.findViewById(R.id.footerText);
 
-            mFooterLeftButton = (TextView) view.findViewById(R.id.footerLeftButton);
-            mFooterRightButton = (TextView) view.findViewById(R.id.footerRightButton);
 
-            mFooterLeftButton.setOnClickListener(this);
-            mFooterRightButton.setOnClickListener(this);
-
-            // make it so unhandled touch events within the unlock screen go to the
-            // lock gesture view.
-            final LinearLayoutWithDefaultTouchRecepient topLayout
-                    = (LinearLayoutWithDefaultTouchRecepient) view.findViewById(
-                    R.id.topLayout);
-            topLayout.setDefaultTouchRecepient(mLockGestureView);
-
-            final boolean confirmCredentials = getActivity().getIntent()
-                    .getBooleanExtra("confirm_credentials", false);
-
+            Intent intent = getActivity().getIntent();
+            final boolean confirmCredentials = intent.getBooleanExtra("confirm_credentials", true);
             if (savedInstanceState == null) {
+                updateStage(Stage.Introduction);
                 if (confirmCredentials) {
-                    // first launch. As a security measure, we're in NeedToConfirm mode until we
-                    // know there isn't an existing password or the user confirms their password.
-                    updateStage(Stage.NeedToConfirm);
-                    boolean launchedConfirmationActivity =
-                        mChooseLockSettingsHelper.launchConfirmationActivity(
-                                CONFIRM_EXISTING_REQUEST, null, null);
-                    if (!launchedConfirmationActivity) {
-                        updateStage(Stage.Introduction);
-                    }
-                } else {
-                    updateStage(Stage.Introduction);
+                    mChooseLockSettingsHelper.launchConfirmationActivity(CONFIRM_EXISTING_REQUEST,
+                            null, null);
                 }
             } else {
-                // restore from previous state
-                final Gesture gesture = savedInstanceState.getParcelable(KEY_GESTURE_CHOICE);
-                if (gesture != null) {
-                    mChosenGesture = gesture;
+                mFirstPin = savedInstanceState.getString(KEY_FIRST_PIN);
+                final String state = savedInstanceState.getString(KEY_UI_STAGE);
+                if (state != null) {
+                    mUiStage = Stage.valueOf(state);
+                    updateStage(mUiStage);
                 }
-                updateStage(Stage.values()[savedInstanceState.getInt(KEY_UI_STAGE)]);
             }
+            // Update the breadcrumb (title) if this is embedded in a PreferenceActivity
+            if (activity instanceof PreferenceActivity) {
+                final PreferenceActivity preferenceActivity = (PreferenceActivity) activity;
+                int id = mIsAlphaMode ? R.string.lockpassword_choose_your_command_header
+                        : R.string.lockpassword_choose_your_pin_header;
+                CharSequence title = getText(id);
+                preferenceActivity.showBreadCrumbs(title, title);
+            }
+
             return view;
         }
+	
+	public void mSpeakButtonClicked(View v) {
+		startVoiceRecognitionActivity();
+	}
 
-        public void onClick(View v) {
-            if (v == mFooterLeftButton) {
-                if (mUiStage.leftMode == LeftButtonMode.Retry) {
-                    mChosenGesture = null;
-                    mLockGestureView.clearGesture();
-                    updateStage(Stage.Introduction);
-                } else if (mUiStage.leftMode == LeftButtonMode.Cancel) {
-                    // They are canceling the entire wizard
-                    getActivity().setResult(RESULT_FINISHED);
-                    getActivity().finish();
-                } else {
-                    throw new IllegalStateException("left footer button pressed, but stage of " +
-                        mUiStage + " doesn't make sense");
-                }
-            } else if (v == mFooterRightButton) {
+/**
+* Fire an intent to start the voice recognition activity.
+*/
+	private void startVoiceRecognitionActivity()
+	{
+        	Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        	intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                	RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        	intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Voice recognition Demo...");
+        	startActivityForResult(intent, REQUEST_CODE);
+    	}
 
-                if (mUiStage.rightMode == RightButtonMode.Continue) {
-                    if (mUiStage != Stage.FirstChoiceValid) {
-                        throw new IllegalStateException("expected ui stage " + Stage.FirstChoiceValid
-                                + " when button is " + RightButtonMode.Continue);
-                    }
-                    updateStage(Stage.NeedToConfirm);
-                } else if (mUiStage.rightMode == RightButtonMode.Confirm) {
-                    if (mUiStage != Stage.ChoiceConfirmed) {
-                        throw new IllegalStateException("expected ui stage " + Stage.ChoiceConfirmed
-                                + " when button is " + RightButtonMode.Confirm);
-                    }
-                    saveChosenGestureAndFinish();
-                } else if (mUiStage.rightMode == RightButtonMode.Ok) {
-                    if (mUiStage != Stage.HelpScreen) {
-                        throw new IllegalStateException("Help screen is only mode with ok button, but " +
-                                "stage is " + mUiStage);
-                    }
-                    mLockGestureView.clearGesture();
-                    mLockGestureView.setDisplayMode(DisplayMode.Correct);
-                    updateStage(Stage.Introduction);
-                }
-            }
+
+        @Override
+        public void onResume() {
+            super.onResume();
+            updateStage(mUiStage);
         }
 
-        public boolean onKeyDown(int keyCode, KeyEvent event) {
-            if (keyCode == KeyEvent.KEYCODE_BACK && event.getRepeatCount() == 0) {
-                if (mUiStage == Stage.HelpScreen) {
-                    updateStage(Stage.Introduction);
-                    return true;
-                }
-            }
-            if (keyCode == KeyEvent.KEYCODE_MENU && mUiStage == Stage.Introduction) {
-                updateStage(Stage.HelpScreen);
-                return true;
-            }
-            return false;
+        @Override
+        public void onPause() {
+            mHandler.removeMessages(MSG_SHOW_ERROR);
+
+            super.onPause();
         }
 
+        @Override
         public void onSaveInstanceState(Bundle outState) {
             super.onSaveInstanceState(outState);
+            outState.putString(KEY_UI_STAGE, mUiStage.name());
+            outState.putString(KEY_FIRST_PIN, mFirstPin);
+        }
 
-            outState.putInt(KEY_UI_STAGE, mUiStage.ordinal());
-            if (mChosenGesture != null) {
-                outState.putParcelable(KEY_GESTURE_CHOICE, mChosenGesture);
+        @Override
+        public void onActivityResult(int requestCode, int resultCode,
+                Intent data) {
+            if (requestCode == REQUEST_CODE && resultCode == RESULT_OK)
+            {
+            // Populate the wordsList with the String values the recognition engine thought it heard
+                ArrayList<String> matches = data.getStringArrayListExtra(
+                        RecognizerIntent.EXTRA_RESULTS);
+                wordsList.setAdapter(new ArrayAdapter<String>(this,        
+		android.R.layout.simple_list_item_1,
+                matches));
+            }
+           super.onActivityResult(requestCode, resultCode, data);
+            switch (requestCode) {
+                case CONFIRM_EXISTING_REQUEST:
+                    if (resultCode != Activity.RESULT_OK) {
+                        getActivity().setResult(RESULT_FINISHED);
+                        getActivity().finish();
+                    }
+                    break;
             }
         }
 
-        /**
-         * Updates the messages and buttons appropriate to what stage the user
-         * is at in choosing a view.  This doesn't handle clearing out the gesture;
-         * the gesture is expected to be in the right state.
-         * @param stage
-         */
         protected void updateStage(Stage stage) {
             final Stage previousStage = mUiStage;
-
             mUiStage = stage;
-
-            // header text, footer text, visibility and
-            // enabled state all known from the stage
-            mHeaderText.setText(stage.headerMessage);
-            if (stage.footerMessage == ID_EMPTY_MESSAGE) {
-                mFooterText.setText("");
-            } else {
-                mFooterText.setText(stage.footerMessage);
-            }
-
-            if (stage.leftMode == LeftButtonMode.Gone) {
-                mFooterLeftButton.setVisibility(View.GONE);
-            } else {
-                mFooterLeftButton.setVisibility(View.VISIBLE);
-                mFooterLeftButton.setText(stage.leftMode.text);
-                mFooterLeftButton.setEnabled(stage.leftMode.enabled);
-            }
-
-            mFooterRightButton.setText(stage.rightMode.text);
-            mFooterRightButton.setEnabled(stage.rightMode.enabled);
-
-            // same for whether the patten is enabled
-            if (stage.gestureEnabled) {
-                mLockGestureView.enableInput();
-            } else {
-                mLockGestureView.disableInput();
-            }
-
-            // the rest of the stuff varies enough that it is easier just to handle
-            // on a case by case basis.
-            mLockGestureView.setDisplayMode(DisplayMode.Correct);
-
-            switch (mUiStage) {
-                case Introduction:
-                    mLockGestureView.clearGesture();
-                    break;
-                case HelpScreen:
-                    break;
-                case FirstChoiceValid:
-                    break;
-                case NeedToConfirm:
-                    mLockGestureView.clearGesture();
-                    break;
-                case ConfirmWrong:
-                    mLockGestureView.setDisplayMode(DisplayMode.Wrong);
-                    postClearGestureRunnable();
-                    break;
-                case ChoiceConfirmed:
-                    break;
-            }
+            updateUi();
 
             // If the stage changed, announce the header for accessibility. This
             // is a no-op when accessibility is disabled.
@@ -492,28 +261,75 @@ public class ChooseLockGesture extends PreferenceActivity {
         }
 
 
-        // clear the wrong gesture unless they have started a new one
-        // already
-        private void postClearGestureRunnable() {
-            mLockGestureView.removeCallbacks(mClearGestureRunnable);
-            mLockGestureView.postDelayed(mClearGestureRunnable, WRONG_GESTURE_CLEAR_TIMEOUT_MS);
-        }
-
-        private void saveChosenGestureAndFinish() {
-            LockPatternUtils utils = mChooseLockSettingsHelper.utils();
-            final boolean lockVirgin = !utils.isGestureEverChosen();
-
-            final boolean isFallback = getActivity().getIntent()
-                .getBooleanExtra(LockPatternUtils.LOCKSCREEN_BIOMETRIC_WEAK_FALLBACK, false);
-            utils.saveLockGesture(mChosenGesture, isFallback);
-            utils.setLockGestureEnabled(true);
-
-            if (lockVirgin) {
-                utils.setVisibleGestureEnabled(true);
+        private void handleNext() {
+            final String pin = mPasswordEntry.getText().toString();
+            if (TextUtils.isEmpty(pin)) {
+                return;
             }
-
-            getActivity().setResult(RESULT_FINISHED);
-            getActivity().finish();
+            String errorMsg = null;
+            if (mUiStage == Stage.Introduction) {
+                    mFirstPin = pin;
+                    mPasswordEntry.setText("");
+                    updateStage(Stage.NeedToConfirm);
+                }
+            } else if (mUiStage == Stage.NeedToConfirm) {
+                if (mFirstPin.equals(pin)) {
+                    final boolean isFallback = getActivity().getIntent().getBooleanExtra(
+                            LockPatternUtils.LOCKSCREEN_BIOMETRIC_WEAK_FALLBACK, false);
+                    mLockPatternUtils.clearLock(isFallback);
+                    mLockPatternUtils.saveLockPassword(pin, mRequestedQuality, isFallback);
+                    getActivity().finish();
+                } else {
+                    CharSequence tmp = mPasswordEntry.getText();
+                    if (tmp != null) {
+                        Selection.setSelection((Spannable) tmp, 0, tmp.length());
+                    }
+                    updateStage(Stage.ConfirmWrong);
+                }
+            }
+            if (errorMsg != null) {
+                showError(errorMsg, mUiStage);
+            }
         }
+
+        public void onClick(View v) {
+            switch (v.getId()) {
+                case R.id.next_button:
+                    handleNext();
+                    break;
+
+                case R.id.cancel_button:
+                    getActivity().finish();
+                    break;
+            }
+        }
+
+        private void showError(String msg, final Stage next) {
+            mHeaderText.setText(msg);
+            mHeaderText.announceForAccessibility(mHeaderText.getText());
+            Message mesg = mHandler.obtainMessage(MSG_SHOW_ERROR, next);
+            mHandler.removeMessages(MSG_SHOW_ERROR);
+            mHandler.sendMessageDelayed(mesg, ERROR_MESSAGE_TIMEOUT);
+        }
+
+
+        /**
+         * Update the hint based on current Stage and length of password entry
+         */
+        private void updateUi() {
+            String password = mPasswordEntry.getText().toString();
+            final int length = password.length();
+            if (mUiStage == Stage.Introduction && length > 0) {
+                        mHeaderText.setText(R.string.lockpassword_press_continue);
+                        mNextButton.setEnabled(true);
+                }
+            } else {
+                mHeaderText.setText(mUiStage.alphaHint);
+                mNextButton.setEnabled(length > 0);
+            }
+            mNextButton.setText(mUiStage.buttonText);
+        }
+
+
     }
 }
