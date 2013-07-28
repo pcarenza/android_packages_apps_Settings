@@ -102,7 +102,7 @@ public class SoundSettings extends SettingsPreferenceFragment implements
 
     private static final String[] NEED_VOICE_CAPABILITY = {
             KEY_RINGTONE, KEY_DTMF_TONE, KEY_CATEGORY_CALLS,
-            KEY_EMERGENCY_TONE, KEY_INCREASING_RING
+            KEY_EMERGENCY_TONE, KEY_VIBRATE, KEY_INCREASING_VOLUME,
     };
 
     private static final int MSG_UPDATE_RINGTONE_SUMMARY = 1;
@@ -200,6 +200,11 @@ public class SoundSettings extends SettingsPreferenceFragment implements
 
         if (!getResources().getBoolean(R.bool.has_silent_mode)) {
             findPreference(KEY_RING_VOLUME).setDependency(null);
+        }
+
+        if (getResources().getBoolean(com.android.internal.R.bool.config_useFixedVolume)) {
+            // device with fixed volume policy, do not display volumes submenu
+            getPreferenceScreen().removePreference(findPreference(KEY_RING_VOLUME));
         }
 
         mVibrateWhenRinging = (CheckBoxPreference) findPreference(KEY_VIBRATE);
